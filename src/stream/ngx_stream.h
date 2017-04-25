@@ -56,6 +56,7 @@ typedef struct {
     unsigned                       reuseport:1;
     unsigned                       so_keepalive:2;
     unsigned                       proxy_protocol:1;
+    unsigned                       dyn_proxy_protocol:1;
 #if (NGX_HAVE_KEEPALIVE_TUNABLE)
     int                            tcp_keepidle;
     int                            tcp_keepintvl;
@@ -73,6 +74,7 @@ typedef struct {
     ngx_str_t                      addr_text;
     unsigned                       ssl:1;
     unsigned                       proxy_protocol:1;
+    unsigned                       dyn_proxy_protocol:1;
 } ngx_stream_addr_conf_t;
 
 typedef struct {

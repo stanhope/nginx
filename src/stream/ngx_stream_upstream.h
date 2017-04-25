@@ -137,6 +137,7 @@ typedef struct {
     ngx_stream_upstream_state_t       *state;
     unsigned                           connected:1;
     unsigned                           proxy_protocol:1;
+    unsigned                           dyn_proxy_protocol:1;
 } ngx_stream_upstream_t;
 
 
