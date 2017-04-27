@@ -12,6 +12,7 @@
 u_char *
 ngx_proxy_protocol_read(ngx_connection_t *c, u_char *buf, u_char *last)
 {
+  fprintf(stdout, "ngx_proxy_protocol_read\n");
     size_t     len;
     u_char     ch, *p, *addr, *port;
     ngx_int_t  n;
@@ -127,6 +128,7 @@ invalid:
 u_char *
 ngx_proxy_protocol_write(ngx_connection_t *c, u_char *buf, u_char *last)
 {
+  fprintf(stdout, "ngx_proxy_protocol_write\n");
     ngx_uint_t  port, lport;
 
     if (last - buf < NGX_PROXY_PROTOCOL_MAX_HEADER) {

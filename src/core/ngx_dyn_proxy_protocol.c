@@ -22,6 +22,8 @@ ngx_dyn_proxy_protocol_write(ngx_connection_t *c, u_char *buf, u_char *last)
 {
     ngx_uint_t  port;
 
+    fprintf(stdout, "dyn_proxy_protocol_write max=%ld c=%p\n", last - buf, c);
+    
     if (last - buf < NGX_PROXY_PROTOCOL_MAX_HEADER) {
         return NULL;
     }
@@ -46,10 +48,12 @@ ngx_dyn_proxy_protocol_write(ngx_connection_t *c, u_char *buf, u_char *last)
     sprintf(BUFF+2,"%s", PROXY_INFO);
     BUFF[0] = 0xFF;
     BUFF[1] = PROXY_INFO_LEN;
-
-    //// fprintf(stdout, " DYN_PROXY_INFO %s [len:%d]\n", PROXY_INFO, PROXY_INFO_LEN);
+    BUFF[PROXY_INFO_LEN+3] = 0;
+    
+    fprintf(stdout, " DYN_PROXY_INFO => \"%s\" [len:%d]\n", PROXY_INFO, PROXY_INFO_LEN);
 	      
     memcpy(buf, BUFF, PROXY_INFO_LEN+2);
+    fprintf(stdout, " %s\n", BUFF);
     return buf + (PROXY_INFO_LEN+2);
 
 }
