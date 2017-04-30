@@ -732,6 +732,7 @@ ngx_stream_proxy_connect(ngx_stream_session_t *s)
     pc->write->handler = ngx_stream_proxy_connect_handler;
 
     ngx_add_timer(pc->write, pscf->connect_timeout);
+
 }
 
 static void
@@ -891,22 +892,8 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
         u->upstream_out = cl;
 
         u->proxy_protocol = 0;
-    }
+    } else if (u->dyn_proxy_protocol && (s->connection->type == SOCK_DGRAM)) {
 
-    if (c->type == SOCK_DGRAM && pscf->responses == 0) {
-        pc->read->ready = 0;
-        pc->read->eof = 1;
-    }
-    u->connected = 1;
-
-    pc->read->handler = ngx_stream_proxy_upstream_handler;
-    pc->write->handler = ngx_stream_proxy_upstream_handler;
-
-    if (pc->read->ready || pc->read->eof) {
-        ngx_post_event(pc->read, &ngx_posted_events);
-    }
-
-    if (u->dyn_proxy_protocol) {
       ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0,
 		     "stream proxy add DYN_PROXY protocol header");
       
@@ -922,35 +909,40 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
 	return;
       }
       
-      cl->buf->pos = p;
-      
-      fprintf(stdout, "WRITING DYN-PROXY LINE %s\n", c->type == SOCK_DGRAM ? "UDP" : "TCP");
-
-      p = ngx_dyn_proxy_protocol_write(c, p, p + NGX_PROXY_PROTOCOL_MAX_HEADER);
+      u_char *last = ngx_dyn_proxy_protocol_write(c, p, p + NGX_PROXY_PROTOCOL_MAX_HEADER);
       if (p == NULL) {
 	fprintf(stdout, "  SERVER ERROR\n");
 	ngx_stream_proxy_finalize(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
 	return;
       }
       
-      cl->buf->last = p;
+      cl->buf->pos = p;
+      cl->buf->last = last;
       cl->buf->temporary = 1;
       cl->buf->flush = 0;
-      cl->buf->tag = (ngx_buf_tag_t) &ngx_stream_proxy_module;
       cl->buf->last_buf = 0;
-      cl->buf->last_in_chain = 0;
+      cl->buf->tag = (ngx_buf_tag_t) &ngx_stream_proxy_module;
       cl->next = u->upstream_out;
-      if (c->type == SOCK_DGRAM) {
-	u->upstream_out = cl;
-	ngx_stream_proxy_process(s, 0, 1);
-      } else {
-	//// u->upstream_out = cl;
-	//// u->upstream_out->buf->pos = cl->buf->pos;
-	//// cl->next = 0;
-        ngx_stream_proxy_process(s, 0, 1);
-      }
+
       u->dyn_proxy_protocol = 0;
+      u->upstream_out = cl;
     }
+
+
+    if (c->type == SOCK_DGRAM && pscf->responses == 0) {
+        pc->read->ready = 0;
+        pc->read->eof = 1;
+    }
+    u->connected = 1;
+
+    pc->read->handler = ngx_stream_proxy_upstream_handler;
+    pc->write->handler = ngx_stream_proxy_upstream_handler;
+
+    if (pc->read->ready || pc->read->eof) {
+        ngx_post_event(pc->read, &ngx_posted_events);
+    }
+
+    ngx_stream_proxy_process(s, 0, 1);
 
 }
 
@@ -1336,7 +1328,6 @@ ngx_stream_proxy_resolve_handler(ngx_resolver_ctx_t *ctx)
 static void
 ngx_stream_proxy_upstream_handler(ngx_event_t *ev)
 {
-  fprintf(stdout, "upstream handler write=%d\n", ev->write);
     ngx_stream_proxy_process_connection(ev, !ev->write);
 }
 
@@ -1344,7 +1335,6 @@ ngx_stream_proxy_upstream_handler(ngx_event_t *ev)
 static void
 ngx_stream_proxy_process_connection(ngx_event_t *ev, ngx_uint_t from_upstream)
 {
-  fprintf(stdout, "process_connection from_upstream:%lu\n", from_upstream);
     ngx_connection_t             *c, *pc;
     ngx_stream_session_t         *s;
     ngx_stream_upstream_t        *u;
@@ -1498,7 +1488,6 @@ ngx_stream_proxy_test_connect(ngx_connection_t *c)
     return NGX_OK;
 }
 
-
 static void
 ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
     ngx_uint_t do_write)
@@ -1547,7 +1536,6 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
         received = &u->received;
         out = &u->downstream_out;
         busy = &u->downstream_busy;
-	fprintf(stdout, "proxy_process - from upstream do_write=%lu buffered=%d pos=%p last=%p start=%p received=%ld out=%p\n", do_write, dst->buffered, b->pos, b->last, b->start, *received, *out);
     } else {
         src = c;
         dst = pc;
@@ -1556,7 +1544,6 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
         received = &s->received;
         out = &u->upstream_out;
         busy = &u->upstream_busy;
-	fprintf(stdout, "proxy_process - from downstream do_write=%lu buffered=%d pos=%p last=%p start=%p received=%ld out=%p busy=%p\n", do_write, dst->buffered, b->pos, b->last, b->start, *received, *out, *busy);
     }
 
     for ( ;; ) {
@@ -1578,10 +1565,7 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
                 ngx_chain_update_chains(c->pool, &u->free, busy, out,
                                       (ngx_buf_tag_t) &ngx_stream_proxy_module);
 
-		fprintf(stdout, "  updated chains out=%p busy=%p\n", *out, *busy);
-
                 if (*busy == NULL) {
-		  fprintf(stdout, "  !busy\n");
                     b->pos = b->start;
                     b->last = b->start;
                 }
@@ -1688,13 +1672,6 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
                       src->type == SOCK_DGRAM ? "udp " : "",
                       from_upstream ? "upstream" : "client",
                       s->received, c->sent, u->received, pc ? pc->sent : 0);
-
-	fprintf(stdout,
-		"%s%s disconnected, bytes from/to client:%ld/%ld, bytes from/to upstream:%ld/%ld\n",
-		src->type == SOCK_DGRAM ? "udp " : "",
-		from_upstream ? "upstream" : "client",
-		s->received, c->sent, u->received, pc ? pc->sent : 0);
-
 
         c->log->handler = handler;
         ngx_stream_proxy_finalize(s, NGX_STREAM_OK);

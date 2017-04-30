@@ -128,8 +128,6 @@ ngx_stream_write_filter(ngx_stream_session_t *s, ngx_chain_t *in,
         return NGX_ERROR;
     }
 
-    fprintf(stdout, "write_filter from_upstream:%lu out=%p c=%p c.dn=%p c.up=%p\n", from_upstream, out, c, s->upstream->peer.connection, s->connection);
-    
     size = 0;
     flush = 0;
     sync = 0;
@@ -171,8 +169,7 @@ ngx_stream_write_filter(ngx_stream_session_t *s, ngx_chain_t *in,
         }
 #endif
 
-	off_t                           size_buf = ngx_buf_size(cl->buf);
-	fprintf(stdout, "  size_buf: %lu\n", size_buf);
+	off_t size_buf = ngx_buf_size(cl->buf);
         size += size_buf;
 
         if (cl->buf->flush || cl->buf->recycled) {
@@ -208,48 +205,45 @@ ngx_stream_write_filter(ngx_stream_session_t *s, ngx_chain_t *in,
                        cl->buf->file_pos,
                        cl->buf->file_last - cl->buf->file_pos);
 
-	/*
-	ngx_stream_upstream_t *u = s->upstream;
-	if (u->dyn_proxy_protocol && !from_upstream && c->type != SOCK_DGRAM) {
-	  fprintf(stdout, "  Including DYN-PROXY LINE ln=%p cl=%p\n", ln, cl);
-
-	  u_char proxy_line_buff[NGX_PROXY_PROTOCOL_MAX_HEADER];
-	  u_char *p = ngx_dyn_proxy_protocol_write(s->connection, proxy_line_buff, proxy_line_buff + NGX_PROXY_PROTOCOL_MAX_HEADER);
-	  uint proxy_line_size = (p - proxy_line_buff);
-	  fprintf(stdout, "  proxy_line_size: %u\n", proxy_line_size);
-
-	  // Build proxy line buffer
-	  uint cur_buf_size = cl->buf->last - cl->buf->pos;
-	  u_char *p_temp = ngx_pnalloc(c->pool, cur_buf_size + proxy_line_size);
-	  memcpy(p_temp, proxy_line_buff, proxy_line_size);
-	  memcpy(p_temp+proxy_line_size, cl->buf->pos, cur_buf_size);
-	  fprintf(stdout, "new buffer\n");
-	  hexdump(p_temp, proxy_line_size+cur_buf_size);
-	  
-	  memcpy(p_temp, cl->buf->pos, cur_buf_size);
-	  fprintf(stdout, "original buffer\n");
-	  hexdump(p_temp, cur_buf_size);
-
-	  // Insert new copy of buffer w/ proxy_line
-	  cl->buf->pos = p_temp;
-	  cl->buf->last = p_temp + (cur_buf_size);
-	  //// cl->buf->last = p_temp + (cur_buf_size + proxy_line_size);
-	  cl->buf->start = p_temp;
-	  cl->buf->end = cl->buf->last;
-	  
-	  u->dyn_proxy_protocol = 0;
-	}
-	*/
 	
+	ngx_stream_upstream_t *u = s->upstream;
+
+	if (s->upstream->dyn_proxy_protocol && !from_upstream && c->type != SOCK_DGRAM) {
+
+	    off_t msg_len = cl->buf->last - cl->buf->pos;
+	    u_char proxy_line[NGX_PROXY_PROTOCOL_MAX_HEADER];
+	    u_char *last = ngx_dyn_proxy_protocol_write(s->connection, proxy_line, proxy_line + NGX_PROXY_PROTOCOL_MAX_HEADER);
+	    uint proxy_line_size = (last - proxy_line);
+	    u_char *proxy_line_buff = ngx_pnalloc(c->pool, NGX_PROXY_PROTOCOL_MAX_HEADER);
+
+	    // Add the proxy line (offset 2 to account for lead length bytes)
+	    memcpy(proxy_line_buff+2, proxy_line, proxy_line_size);
+
+	    // Add original message, adjust total length
+	    memcpy(proxy_line_buff+2+proxy_line_size, cl->buf->pos+2, msg_len-2);
+	    proxy_line_buff[0] = 0;
+	    proxy_line_buff[1] = proxy_line_size + msg_len - 2;
+
+	    // Free original buf
+	    ngx_pfree(c->pool, cl->buf->pos);
+
+	    // Adjust total length
+	    cl->buf->pos = proxy_line_buff;
+	    cl->buf->last = proxy_line_buff + proxy_line_size + msg_len + 2;
+
+	    u->dyn_proxy_protocol = 0;
+	}
+	
+	/*
         fprintf(stdout, "  write new buf t:%d f:%d start:%p, pos %p, size: %ld\n",
 		cl->buf->temporary, cl->buf->in_file,
 		cl->buf->start, cl->buf->pos,
 		cl->buf->last - cl->buf->pos);
 
 	hexdump(cl->buf->pos, (cl->buf->last - cl->buf->pos));
+	*/
 
 	off_t size_buf = ngx_buf_size(cl->buf);
-	fprintf(stdout, "  size_buf: %lu\n", size_buf);
         size += size_buf;
 
         if (cl->buf->flush || cl->buf->recycled) {
@@ -265,9 +259,6 @@ ngx_stream_write_filter(ngx_stream_session_t *s, ngx_chain_t *in,
         }
     }
 
-    fprintf(stdout, "  writer.2 size=%ld flush=%lu sync=%lu last=%lu\n", size, flush, sync, last);
-
-    
     *ll = NULL;
 
     ngx_log_debug3(NGX_LOG_DEBUG_STREAM, c->log, 0,
@@ -298,8 +289,6 @@ ngx_stream_write_filter(ngx_stream_session_t *s, ngx_chain_t *in,
         return NGX_ERROR;
     } 
 
-    fprintf(stdout, "  sending chain out=%p\n", out);
-    
     chain = c->send_chain(c, *out, 0);
 
     ngx_log_debug1(NGX_LOG_DEBUG_STREAM, c->log, 0,
@@ -335,7 +324,6 @@ ngx_stream_write_filter(ngx_stream_session_t *s, ngx_chain_t *in,
         return NGX_AGAIN;
     }
 
-    fprintf(stdout, "  write_filter OK\n");
     return NGX_OK;
 }
 
